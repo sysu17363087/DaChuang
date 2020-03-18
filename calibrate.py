@@ -38,8 +38,10 @@ def calibrateOne(img_path,cameraParam):
             
         
     ret,mtx,dist,rvecs,tvecs = cv2.calibrateCamera(obj_points,img_points,size,None,None,criteria)
-        #计算误差
+        #dist——>dist coffients(就是k、p的值)
+    
     newcameramtx,roi = cv2.getOptimalNewCameraMatrix(mtx,dist,(w,h),1,(w,h))#显示更大范围的图片（正常重映射之后会删掉一部分图像）
+    #将fx，fy（世界坐标系的焦距）投射到fu，fv（图像坐标系的焦距）上，立体矫正时会用
     #dst = cv2.undistort(img,mtx,dist,None,newcameramtx)
     #x,y,w,h = roi
     
@@ -56,15 +58,18 @@ def calibrateOne(img_path,cameraParam):
 
 def rectify_pair(image_left,image_right,viz=False):
     #特征点匹配
+    #1.用surf进行特征点检测
     grayL = cv2.cvtColor(image_left,cv2.COLOR_BGR2GRAY)
     grayR = cv2.cvtColor(image_right,cv2.COLOR_BGR2GRAY)
-    surf = cv2.xfeatures2d.SURF_create()
+    surf = cv2.xfeatures2d.SURF_create() 
 
     # find the keypoints and descriptors with SIFT
     kp1, des1 = surf.detectAndCompute(grayL, None)
     kp2, des2 = surf.detectAndCompute(grayR, None)
     img = cv2.drawKeypoints(grayL,kp1,image_left)
     cv2.imshow("keyPointsOfLeft",img)
+
+    #2.用BFMATCHER进行特征点匹配
     bf=cv2.BFMatcher(cv2.NORM_L1,crossCheck=False)
     # 特征描述子匹配
     matches=bf.match(des1,des2)
@@ -88,6 +93,7 @@ def rectify_pair(image_left,image_right,viz=False):
 def calibrateTwo(leftCameraParam,rightCameraParam,lmap,rmap,leftImg,rightImg):
     img1 = cv2.imread(leftImg)
     img2 = cv2.imread(rightImg)
+    
     F,H_left,H_right = rectify_pair(img1,img2,True)
     R1 = np.linalg.inv(leftCameraParam['mtx'])*H_left*leftCameraParam['mtx']
     R2 = np.linalg.inv(rightCameraParam['mtx'])*H_right*rightCameraParam['mtx']
@@ -95,9 +101,9 @@ def calibrateTwo(leftCameraParam,rightCameraParam,lmap,rmap,leftImg,rightImg):
     
     Q = cv2.stereoRectify(C1,dist1,C2,dist2,leftCameraParam['size'],R,T,alpha = 1)
     #Computes rectification transforms for each head of a calibrated stereo camera.
-    left_map1, left_map2 = cv2.initUndistortRectifyMap(C1, dist1, R1*R2, leftCameraParam['newmtx'], leftCameraParam['size'], cv2.CV_16SC2)
+    left_map1, left_map2 = cv2.initUndistortRectifyMap(C1, dist1, R1, leftCameraParam['newmtx'], leftCameraParam['size'], cv2.CV_16SC2)
     #计算矫正参数
-    right_map1, right_map2 = cv2.initUndistortRectifyMap(C2, dist2, R1*R2, rightCameraParam['newmtx'], leftCameraParam['size'], cv2.CV_16SC2)
+    right_map1, right_map2 = cv2.initUndistortRectifyMap(C2, dist2, R2, rightCameraParam['newmtx'], leftCameraParam['size'], cv2.CV_16SC2)
     print('calibrate two camera success')
     lmap['lm1'] = left_map1
     lmap['lm2'] = left_map2
@@ -115,7 +121,7 @@ def depth(lmap,rmap,lImg,rImg,f):
     r_images = cv2.imread(rImg)
     #cv2.imshow('right image',r_images)
     
-    #矫正双目
+    #双目重映射
     img1_rectified = cv2.remap(l_images, lmap['lm1'], lmap['lm2'], cv2.INTER_LINEAR)
     #left_map1&left_map2=>重映射1/2 采用线性插值
     img2_rectified = cv2.remap(r_images, rmap['rm1'], rmap['rm2'], cv2.INTER_LINEAR)
@@ -123,9 +129,9 @@ def depth(lmap,rmap,lImg,rImg,f):
     imgL = cv2.cvtColor(img1_rectified, cv2.COLOR_BGR2GRAY)
     imgR = cv2.cvtColor(img2_rectified, cv2.COLOR_BGR2GRAY)
 
-    # calculate histogram
     cv2.imshow("left",imgL)
     cv2.imshow("right",imgR)
+    #生成视差图
     window_size = 3
     minDisp = 0
     numDisp = 128 - minDisp
@@ -147,15 +153,18 @@ def depth(lmap,rmap,lImg,rImg,f):
     #threeD_disp = cv2.reprojectImageTo3D(disparity,lmap['Q'],0)
     #f.write(str(threeD_disp))
     #cv2.imshow('3d',threeD_disp)
+    #看一下重映射(remap)的参数有没有问题
     f.write(str(lmap))
     f.write(str(rmap))
     
 #def WorldPos(leftCameraParam,rightCameraParam,lmap)    
-
+#标定图片的路径
 left_caliPath = "E:/DC/CaptrueData2019.12.11/left1/*.jpg"
 right_caliPath = "E:/DC/CaptrueData2019.12.11/right1/*.jpg"
+#用于生成视差图的一组图片
 lImg = "E:/DC/CaptrueData2019.12.11/left1/20191211_080127_650__1_27.662.jpg"
 rImg = "E:/DC/CaptrueData2019.12.11/right1/20191211_080127_650__0_27.678.jpg"
+#记录相机参数和深度图参数的文档
 f = open('./CameraParam.txt','w')
 f_disp = open('./disparity.txt','w')
 left_CameraParam = {}
